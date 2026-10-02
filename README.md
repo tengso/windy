@@ -6,6 +6,8 @@ stream it in real time to a server that saves WAV files.
 No extension or install is needed. The user opens the Windy page, clicks **Start**, and shares the meeting tab
 through Chrome's built-in tab picker.
 
+Live (browser-only mode): https://tengso.github.io/windy/
+
 ## How it works
 
 ```
@@ -46,7 +48,25 @@ Environment variables: `PORT` (default `8080`) and `RECORDINGS_DIR` (default `./
 
 To send audio to a different backend, append `?server=wss://other-host/ingest` to the page URL.
 
-## Deploy
+## Modes
+
+The page picks a mode when it loads:
+
+| Mode | When | Where recordings go |
+|------|------|---------------------|
+| server | page served by `server.js` (`api/recordings` responds) | streamed over WebSocket, saved in `RECORDINGS_DIR` |
+| remote | `?server=wss://host/ingest` in the URL | streamed to that server |
+| local | anything else (e.g. GitHub Pages) | kept in browser memory and offered as a WAV download |
+
+Browser-only mode needs no backend. Audio is held in memory (about 64 KB/s, roughly 230 MB per hour) until you
+stop, and it is lost if the tab closes before you download it.
+
+## Deploy to GitHub Pages (browser-only)
+
+`.github/workflows/pages.yml` publishes `public/` on every push to `main`. One-time setup: in the repo's
+**Settings → Pages**, set **Source** to **GitHub Actions**.
+
+## Deploy the server
 
 `getDisplayMedia` and `getUserMedia` only work on HTTPS (or `localhost`), so deploy behind TLS. The app is a
 single Node process that serves both the page and the WebSocket, so any Node host with WebSocket support works:
