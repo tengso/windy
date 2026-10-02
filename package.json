@@ -1,0 +1,19 @@
+{
+  "name": "windy",
+  "version": "0.1.0",
+  "description": "Capture online-meeting tab audio in Chrome and stream it to a server that saves WAV files",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "lint": "node --check server.js && node --check lib/wav.js && node --check public/main.js && node --check public/pcm-worklet.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "8.19.0"
+  },
+  "license": "MIT"
+}

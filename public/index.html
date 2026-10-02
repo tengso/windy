@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Windy – meeting audio recorder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Windy</h1>
+    <p>Open your meeting in another tab, then click <b>Start</b>, choose the meeting tab, and keep
+      <b>“Also share tab audio”</b> ticked.</p>
+
+    <label><input type="checkbox" id="mic" checked> Also record my microphone</label>
+    <div class="buttons">
+      <button id="start">Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <p id="status">Idle</p>
+
+    <div class="meter"><span>Meeting</span><progress id="lvl-tab" max="1" value="0"></progress></div>
+    <div class="meter"><span>Mic</span><progress id="lvl-mic" max="1" value="0"></progress></div>
+
+    <h2>Recordings</h2>
+    <ul id="recordings"></ul>
+  </main>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1d2330; }
+main { max-width: 640px; margin: 40px auto; padding: 24px; background: #fff; border-radius: 12px; box-shadow: 0 1px 4px #0002; }
+h1 { margin-top: 0; }
+.buttons { margin: 16px 0; display: flex; gap: 8px; }
+button { font: inherit; padding: 8px 20px; border-radius: 8px; border: 1px solid #c5cad3; background: #fff; cursor: pointer; }
+button:not(:disabled):hover { background: #eef1f6; }
+#start:not(:disabled) { background: #2563eb; border-color: #2563eb; color: #fff; }
+#status { font-weight: 600; }
+.meter { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+.meter span { width: 70px; }
+.meter progress { flex: 1; height: 14px; }
+#recordings li { margin: 4px 0; }
+#recordings audio { display: block; width: 100%; margin-top: 4px; }
