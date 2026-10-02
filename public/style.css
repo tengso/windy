@@ -11,3 +11,4 @@ button:not(:disabled):hover { background: #eef1f6; }
 .meter progress { flex: 1; height: 14px; }
 #recordings li { margin: 4px 0; }
 #recordings audio { display: block; width: 100%; margin-top: 4px; }
+.mode { color: #5b6475; font-size: 14px; }
