@@ -20,6 +20,7 @@
   </header>
 
   <main class="layout">
+    <div class="main-col">
     <section class="card session">
       <div class="session-head">
         <div>
@@ -29,10 +30,13 @@
         <span id="live" class="live-chip" data-state="idle"><i></i><span id="live-text">Idle</span></span>
       </div>
 
-      <div class="timer" id="timer">00:00</div>
-      <p id="status">Idle</p>
-
-      <canvas id="activity" aria-label="Live audio activity"></canvas>
+      <div class="session-body">
+        <div>
+          <div class="timer" id="timer">00:00</div>
+          <p id="status">Idle</p>
+        </div>
+        <canvas id="activity" aria-label="Live audio activity"></canvas>
+      </div>
 
       <div class="speakers">
         <div class="speaker" id="spk-tab">
@@ -54,16 +58,43 @@
       </div>
 
       <div class="controls">
-        <label class="switch">
-          <input type="checkbox" id="mic" checked>
-          <span class="track"></span>
-          Include my microphone
-        </label>
+        <div class="toggles">
+          <label class="switch">
+            <input type="checkbox" id="mic" checked>
+            <span class="track"></span>
+            Include my microphone
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="transcribe" checked>
+            <span class="track"></span>
+            Live transcript
+          </label>
+        </div>
         <button id="start" class="btn primary"><span class="rec-dot"></span>Start recording</button>
         <button id="stop" class="btn danger" hidden><span class="stop-square"></span>End recording</button>
       </div>
       <p id="mode" class="mode"></p>
     </section>
+
+    <section class="card transcript-card">
+      <div class="card-head">
+        <div>
+          <h2>Live transcript</h2>
+          <small id="engine" class="engine"></small>
+        </div>
+        <div class="card-actions">
+          <button id="copy-transcript" class="btn ghost" disabled>Copy</button>
+          <button id="download-transcript" class="btn ghost" disabled>Download .txt</button>
+        </div>
+      </div>
+      <div id="model-progress" class="model-progress" hidden>
+        <span id="model-label">Downloading speech model…</span>
+        <progress id="model-bar" max="1" value="0"></progress>
+      </div>
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+      <p id="transcript-empty" class="empty">What people say in the meeting will appear here as they speak.</p>
+    </section>
+    </div>
 
     <aside class="side">
       <section class="card how" id="how">
@@ -72,6 +103,7 @@
           <li><b>Open your meeting</b> in another Chrome tab (Meet, Zoom, Teams…).</li>
           <li><b>Click Start recording</b> and pick the meeting tab.</li>
           <li><b>Keep “Also share tab audio” ticked</b>, then click Share.</li>
+          <li><b>Follow along</b> in the live transcript and download it afterwards.</li>
         </ol>
       </section>
 
