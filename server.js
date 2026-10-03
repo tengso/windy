@@ -5,6 +5,7 @@ import { extname, join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { wavHeader, WAV_HEADER_BYTES } from './lib/wav.js';
+import { openDeepgram, DEEPGRAM_URL } from './lib/deepgram.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -48,12 +49,23 @@ function startRecording(dir, sampleRate, channels) {
   };
 }
 
-export function createWindyServer({ recordingsDir = join(ROOT, 'recordings'), log = console.log } = {}) {
+export function createWindyServer({
+  recordingsDir = join(ROOT, 'recordings'),
+  log = console.log,
+  deepgramApiKey = process.env.DEEPGRAM_API_KEY,
+  deepgramUrl = DEEPGRAM_URL,
+  deepgramModel = process.env.DEEPGRAM_MODEL,
+  deepgramLanguage = process.env.DEEPGRAM_LANGUAGE,
+} = {}) {
   const dir = resolve(recordingsDir);
   mkdirSync(dir, { recursive: true });
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/api/config') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ transcription: deepgramApiKey ? 'deepgram' : 'browser' }));
+    }
     if (url.pathname === '/api/recordings') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(await listRecordings(dir)));
@@ -74,12 +86,43 @@ export function createWindyServer({ recordingsDir = join(ROOT, 'recordings'), lo
     const channels = Number(params.get('channels')) || 2;
     const rec = startRecording(dir, sampleRate, channels);
     log(`recording ${rec.name} (${sampleRate} Hz, ${channels} ch)`);
-    ws.on('message', (data, isBinary) => { if (isBinary) rec.write(data); });
-    ws.on('close', async () => {
-      const { name, dataBytes } = await rec.finish();
-      const seconds = dataBytes / (sampleRate * channels * 2);
-      log(`saved ${name} (${seconds.toFixed(1)} s)`);
+    const relay = msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); };
+    const dg = deepgramApiKey && params.get('transcribe') === 'deepgram'
+      ? openDeepgram({
+        apiKey: deepgramApiKey,
+        url: deepgramUrl,
+        sampleRate,
+        channels,
+        model: deepgramModel,
+        language: deepgramLanguage,
+        onTranscript: relay,
+        onError: err => {
+          log(`deepgram error: ${err.message}`);
+          relay({ type: 'transcript-error', message: err.message });
+        },
+      })
+      : null;
+
+    let finished = null;
+    const finish = () => {
+      finished ??= Promise.all([rec.finish(), dg?.close()]).then(([{ name, dataBytes }]) => {
+        const seconds = dataBytes / (sampleRate * channels * 2);
+        log(`saved ${name} (${seconds.toFixed(1)} s)`);
+      });
+      return finished;
+    };
+
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        rec.write(data);
+        dg?.send(data);
+        return;
+      }
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (msg.type === 'stop') finish().then(() => ws.close());
     });
+    ws.on('close', finish);
   });
 
   return server;
