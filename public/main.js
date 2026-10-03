@@ -1,4 +1,7 @@
 import { createSegmenter, createWhisperEngine, deinterleave } from './transcriber.js';
+import {
+  CLOUD_MODELS, KEY_PROTOCOL_PREFIX, OPENAI_REALTIME_URL, createOpenAIChannel, createQwenChannel, openaiClientSecret,
+} from './cloud-stt.js';
 
 const SAMPLE_RATE = 16000;
 const CHANNELS = 2;
@@ -8,6 +11,10 @@ const startBtn = $('start');
 const stopBtn = $('stop');
 const micBox = $('mic');
 const transcribeBox = $('transcribe');
+const modelSelect = $('model');
+const keyInput = $('model-key');
+const rememberBox = $('remember-key');
+const regionSelect = $('qwen-region');
 const statusEl = $('status');
 const modeEl = $('mode');
 const SPEAKING_THRESHOLD = 0.04;
@@ -19,9 +26,12 @@ const ICONS = {
   download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
 };
 const serverOverride = new URLSearchParams(location.search).get('server');
+const PROVIDER_NAMES = { whisper: 'Built-in', openai: 'OpenAI', qwen: 'Qwen', deepgram: 'Deepgram' };
+const CLOUD = ['openai', 'qwen'];
+const typedKeys = { openai: '', qwen: '' };
 
 let mode = serverOverride ? 'remote' : 'local';
-let serverTranscription = 'browser';
+let serverConfig = { providers: {} };
 let whisper = null;
 let whisperState = { status: 'idle', device: null, progress: 0 };
 let session = null;
@@ -118,6 +128,74 @@ function ingestUrl(engine) {
   return `${base}?sampleRate=${SAMPLE_RATE}&channels=${CHANNELS}${transcribe}`;
 }
 
+function relayUrl(provider) {
+  const url = new URL(serverOverride ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ingest`);
+  url.pathname = url.pathname.replace(/ingest\/?$/, 'stt');
+  url.search = '';
+  url.searchParams.set('provider', provider);
+  if (provider === 'qwen') url.searchParams.set('region', regionSelect.value);
+  return url.toString();
+}
+
+const engineOf = choice => (choice === 'builtin' ? 'whisper' : choice);
+const providerModel = provider => serverConfig.providers[provider]?.model ?? CLOUD_MODELS[provider];
+
+function hasServerKey(provider) {
+  if (provider === 'deepgram' && serverConfig.transcription === 'deepgram') return true;
+  return Boolean(serverConfig.providers[provider]?.serverKey);
+}
+
+function engineLabel(engine) {
+  if (engine === 'whisper') return 'Whisper · on this device';
+  if (engine === 'deepgram') return 'Deepgram · cloud';
+  return `${PROVIDER_NAMES[engine]} · ${providerModel(engine)} · cloud`;
+}
+
+function missingRequirement(choice) {
+  if (!CLOUD.includes(choice) || hasServerKey(choice)) return null;
+  if (choice === 'qwen' && mode === 'local') return 'Qwen needs a Windy server. Run npm start, or add ?server=… to the URL.';
+  if (!typedKeys[choice].trim()) return `Paste your ${PROVIDER_NAMES[choice]} API key to use ${PROVIDER_NAMES[choice]}.`;
+  return null;
+}
+
+function modelNote(choice) {
+  if (choice === 'builtin') return 'Runs Whisper in this browser. Free and private; the model downloads on first use.';
+  if (hasServerKey(choice)) return `Audio is sent to ${PROVIDER_NAMES[choice]} using this server's API key.`;
+  if (choice === 'qwen' && mode === 'local') {
+    return 'Qwen needs a Windy server: its realtime API requires an Authorization header, which browsers can’t send. '
+      + 'Run npm start, or add ?server=wss://your-host/ingest to the URL.';
+  }
+  const via = mode === 'local' ? '' : ' through this Windy server';
+  const vendor = choice === 'openai' ? 'OpenAI' : 'Alibaba Cloud Model Studio';
+  return `Audio and your key go only to ${vendor}${via}, and usage is billed to your account. `
+    + (rememberBox.checked ? 'The key is saved in this browser.' : 'The key is kept only until you close this tab.');
+}
+
+function renderPicker() {
+  const deepgram = modelSelect.querySelector('option[value="deepgram"]');
+  deepgram.hidden = deepgram.disabled = !hasServerKey('deepgram');
+  if (modelSelect.selectedOptions[0]?.disabled) modelSelect.value = 'builtin';
+  const choice = modelSelect.value;
+  const needsKey = CLOUD.includes(choice) && !hasServerKey(choice) && !(choice === 'qwen' && mode === 'local');
+  $('key-row').hidden = !needsKey;
+  regionSelect.hidden = !(needsKey && choice === 'qwen');
+  keyInput.placeholder = choice === 'qwen' ? 'Paste your DashScope API key' : 'Paste your OpenAI API key';
+  if (needsKey) keyInput.value = typedKeys[choice];
+  $('model-note').textContent = modelNote(choice);
+}
+
+function setPickerDisabled(disabled) {
+  [modelSelect, keyInput, rememberBox, regionSelect].forEach(el => { el.disabled = disabled; });
+}
+
+function persistKeys() {
+  for (const provider of CLOUD) {
+    const name = `windy.key.${provider}`;
+    if (rememberBox.checked && typedKeys[provider].trim()) localStorage.setItem(name, typedKeys[provider].trim());
+    else localStorage.removeItem(name);
+  }
+}
+
 function transcriptBlocks() {
   const blocks = [];
   for (const line of [...transcript.lines].sort((a, b) => a.start - b.start)) {
@@ -170,15 +248,13 @@ function renderEngine() {
   bar.hidden = !loading;
   $('model-bar').value = whisperState.progress;
   $('model-label').textContent = `Downloading speech model… ${Math.round(whisperState.progress * 100)}%`;
-  if (transcript.engine === 'deepgram') label.textContent = 'Deepgram · cloud';
+  if (transcript.engine && transcript.engine !== 'whisper') label.textContent = engineLabel(transcript.engine);
   else if (transcript.engine === 'whisper') {
     label.textContent = whisperState.status === 'error'
       ? 'Speech model failed to load'
       : `Whisper · on this device${whisperState.device ? ` (${whisperState.device === 'webgpu' ? 'GPU' : 'CPU'})` : ''}`;
   } else {
-    label.textContent = transcribeBox.checked
-      ? (mode === 'server' && serverTranscription === 'deepgram' ? 'Deepgram · cloud' : 'Whisper · on this device')
-      : 'Off';
+    label.textContent = transcribeBox.checked ? engineLabel(engineOf(modelSelect.value)) : 'Off';
   }
 }
 
@@ -246,6 +322,58 @@ function whisperSegmenters(channels) {
   }));
 }
 
+function cloudOpener(provider) {
+  const key = hasServerKey(provider) ? null : typedKeys[provider].trim();
+  if (mode !== 'local') {
+    return () => new WebSocket(relayUrl(provider), key ? ['windy', `${KEY_PROTOCOL_PREFIX}${key}`] : ['windy']);
+  }
+  let secret = null;
+  return async () => {
+    secret ??= openaiClientSecret(key, providerModel(provider));
+    return new WebSocket(OPENAI_REALTIME_URL, ['realtime', `openai-insecure-api-key.${await secret}`]);
+  };
+}
+
+function cloudChannels(engine, channels) {
+  const open = cloudOpener(engine);
+  const create = engine === 'openai' ? createOpenAIChannel : createQwenChannel;
+  return channels.map(channel => create({
+    channel,
+    sampleRate: SAMPLE_RATE,
+    model: providerModel(engine),
+    open,
+    onSpeaking: (speaking, start) => {
+      transcript.speaking[channel] = speaking;
+      if (speaking) transcript.lastStart[channel] = start;
+      renderTranscript();
+    },
+    onInterim: ({ text, start }) => {
+      transcript.interim[channel] = text ? { text, start } : null;
+      renderTranscript();
+    },
+    onFinal: line => {
+      transcript.interim[channel] = null;
+      addTranscript(line);
+    },
+    onError: err => fallBackToWhisper(engine, err.message),
+  }));
+}
+
+function fallBackToWhisper(engine, message) {
+  if (session?.engine !== engine) return;
+  console.warn(`${PROVIDER_NAMES[engine]} transcription failed, switching to on-device Whisper:`, message);
+  session.cloud.forEach(channel => channel.close());
+  session.cloud = [];
+  session.engine = 'whisper';
+  session.segmenters = whisperSegmenters(session.channels);
+  transcript.engine = 'whisper';
+  transcript.interim = [null, null];
+  transcript.speaking = [false, false];
+  setStatus(`${PROVIDER_NAMES[engine]} transcription failed (${message}). Switched to on-device Whisper.`);
+  renderEngine();
+  renderTranscript();
+}
+
 function onServerMessage(msg) {
   if (msg.type === 'transcript') {
     if (msg.final) {
@@ -255,14 +383,8 @@ function onServerMessage(msg) {
       transcript.interim[msg.channel] = { text: msg.text, start: msg.start };
       renderTranscript();
     }
-  } else if (msg.type === 'transcript-error' && session?.engine === 'deepgram') {
-    console.warn('Cloud transcription failed, switching to on-device Whisper:', msg.message);
-    session.engine = 'whisper';
-    session.segmenters = whisperSegmenters(session.channels);
-    transcript.engine = 'whisper';
-    transcript.interim = [null, null];
-    renderEngine();
-    renderTranscript();
+  } else if (msg.type === 'transcript-error') {
+    fallBackToWhisper('deepgram', msg.message);
   }
 }
 
@@ -380,9 +502,17 @@ function localSink() {
 }
 
 async function start() {
+  const choice = transcribeBox.checked ? modelSelect.value : null;
+  const problem = choice && missingRequirement(choice);
+  if (problem) {
+    setStatus(problem);
+    if (!$('key-row').hidden) keyInput.focus();
+    return;
+  }
   startBtn.disabled = true;
   micBox.disabled = true;
   transcribeBox.disabled = true;
+  setPickerDisabled(true);
   setLive('connecting', 'Connecting');
   setStatus('Choose the meeting tab in Chrome’s share dialog…');
   try {
@@ -403,17 +533,22 @@ async function start() {
     });
     merger.connect(node);
 
-    const engine = !transcribeBox.checked ? null
-      : mode === 'server' && serverTranscription === 'deepgram' ? 'deepgram' : 'whisper';
+    const engine = choice && engineOf(choice);
     const channels = micStream ? [0, 1] : [0];
     resetTranscript(engine);
     const sink = mode === 'local' ? localSink() : socketSink(engine, () => stop('Server connection closed'));
-    const live = { engine, channels, segmenters: engine === 'whisper' ? whisperSegmenters(channels) : [] };
+    const live = {
+      engine,
+      channels,
+      segmenters: engine === 'whisper' ? whisperSegmenters(channels) : [],
+      cloud: CLOUD.includes(engine) ? cloudChannels(engine, channels) : [],
+    };
     let seconds = 0;
     node.port.onmessage = ({ data }) => {
-      if (live.segmenters.length) {
+      if (live.segmenters.length || live.cloud.length) {
         const perChannel = deinterleave(new Int16Array(data.pcm), CHANNELS);
         live.segmenters.forEach((seg, i) => seg.push(perChannel[live.channels[i]]));
+        live.cloud.forEach((stt, i) => stt.push(perChannel[live.channels[i]]));
       }
       sink.write(data.pcm);
       seconds += data.pcm.byteLength / (SAMPLE_RATE * CHANNELS * 2);
@@ -442,6 +577,7 @@ async function start() {
     startBtn.disabled = false;
     micBox.disabled = false;
     transcribeBox.disabled = false;
+    setPickerDisabled(false);
     setLive('idle', 'Idle');
     setStatus(err.name === 'NotAllowedError' ? 'Sharing cancelled' : `Error: ${err.message}`);
   }
@@ -449,12 +585,12 @@ async function start() {
 
 async function stop(reason = 'Stopped') {
   if (!session) return;
-  const { ctx, sink, streams, segmenters } = session;
+  const { ctx, sink, streams, segmenters, cloud } = session;
   session = null;
   streams.forEach(s => s.getTracks().forEach(t => t.stop()));
   await ctx.close();
   segmenters.forEach(seg => seg.flush());
-  const closing = sink.close();
+  const closing = Promise.all([sink.close(), ...cloud.map(stt => stt.close())]);
   setSpeaker('tab', 0);
   setSpeaker('mic', 0);
   startBtn.hidden = false;
@@ -463,6 +599,7 @@ async function stop(reason = 'Stopped') {
   stopBtn.disabled = true;
   micBox.disabled = false;
   transcribeBox.disabled = false;
+  setPickerDisabled(false);
   $('how').hidden = false;
   $('session-title').textContent = 'Ready when your meeting is';
   setLive('idle', 'Idle');
@@ -525,13 +662,24 @@ async function refreshRecordings() {
   if (mode === 'remote') $('empty').textContent = `Recordings are saved on ${serverOverride}.`;
 }
 
-async function detectTranscription() {
-  if (mode !== 'server') return 'browser';
+function configUrl() {
+  if (mode === 'server') return 'api/config';
+  if (mode !== 'remote') return null;
+  const url = new URL(serverOverride);
+  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+  url.pathname = url.pathname.replace(/ingest\/?$/, 'api/config');
+  url.search = '';
+  return url.toString();
+}
+
+async function detectConfig() {
+  const url = configUrl();
+  if (!url) return { providers: {} };
   try {
-    const res = await fetch('api/config');
-    return res.ok ? (await res.json()).transcription ?? 'browser' : 'browser';
+    const res = await fetch(url);
+    return res.ok ? { providers: {}, ...(await res.json()) } : { providers: {} };
   } catch {
-    return 'browser';
+    return { providers: {} };
   }
 }
 
@@ -548,11 +696,31 @@ $('download-transcript').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 transcribeBox.addEventListener('change', renderEngine);
+modelSelect.addEventListener('change', () => {
+  localStorage.setItem('windy.model', modelSelect.value);
+  renderPicker();
+  renderEngine();
+});
+keyInput.addEventListener('input', () => {
+  typedKeys[modelSelect.value] = keyInput.value;
+  persistKeys();
+});
+rememberBox.addEventListener('change', () => {
+  persistKeys();
+  renderPicker();
+});
+regionSelect.addEventListener('change', () => localStorage.setItem('windy.qwen-region', regionSelect.value));
 startBtn.addEventListener('click', start);
 stopBtn.addEventListener('click', () => stop());
 mode = await detectMode();
-serverTranscription = await detectTranscription();
+serverConfig = await detectConfig();
+for (const provider of CLOUD) typedKeys[provider] = localStorage.getItem(`windy.key.${provider}`) ?? '';
+rememberBox.checked = CLOUD.some(provider => typedKeys[provider]);
+regionSelect.value = localStorage.getItem('windy.qwen-region') ?? 'intl';
+modelSelect.value = localStorage.getItem('windy.model') ?? 'builtin';
+if (!modelSelect.value) modelSelect.value = 'builtin';
 describeMode();
+renderPicker();
 renderEngine();
 renderTranscript();
 drawActivity();

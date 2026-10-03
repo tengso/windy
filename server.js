@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { wavHeader, WAV_HEADER_BYTES } from './lib/wav.js';
 import { openDeepgram, DEEPGRAM_URL } from './lib/deepgram.js';
+import {
+  clientKey, qwenUrl, relayTranscription, DEFAULT_MODELS, OPENAI_REALTIME_URL, RELAY_PROTOCOL,
+} from './lib/stt-relay.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PUBLIC_DIR = join(ROOT, 'public');
@@ -56,6 +59,13 @@ export function createWindyServer({
   deepgramUrl = DEEPGRAM_URL,
   deepgramModel = process.env.DEEPGRAM_MODEL,
   deepgramLanguage = process.env.DEEPGRAM_LANGUAGE,
+  openaiApiKey = process.env.OPENAI_API_KEY,
+  openaiUrl = process.env.OPENAI_REALTIME_URL ?? OPENAI_REALTIME_URL,
+  openaiModel = process.env.OPENAI_TRANSCRIPTION_MODEL ?? DEFAULT_MODELS.openai,
+  qwenApiKey = process.env.DASHSCOPE_API_KEY,
+  qwenBaseUrl = process.env.QWEN_REALTIME_URL,
+  qwenRegion = process.env.QWEN_REGION ?? 'intl',
+  qwenModel = process.env.QWEN_TRANSCRIPTION_MODEL ?? DEFAULT_MODELS.qwen,
 } = {}) {
   const dir = resolve(recordingsDir);
   mkdirSync(dir, { recursive: true });
@@ -63,8 +73,15 @@ export function createWindyServer({
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/api/config') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ transcription: deepgramApiKey ? 'deepgram' : 'browser' }));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({
+        transcription: deepgramApiKey ? 'deepgram' : 'browser',
+        providers: {
+          deepgram: { serverKey: Boolean(deepgramApiKey) },
+          openai: { serverKey: Boolean(openaiApiKey), model: openaiModel },
+          qwen: { serverKey: Boolean(qwenApiKey), model: qwenModel },
+        },
+      }));
     }
     if (url.pathname === '/api/recordings') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -79,8 +96,36 @@ export function createWindyServer({
     sendFile(res, path);
   });
 
-  const wss = new WebSocketServer({ server, path: '/ingest' });
-  wss.on('connection', (ws, req) => {
+  const ingest = new WebSocketServer({ noServer: true });
+  const stt = new WebSocketServer({
+    noServer: true,
+    handleProtocols: protocols => (protocols.has(RELAY_PROTOCOL) ? RELAY_PROTOCOL : false),
+  });
+  server.on('upgrade', (req, socket, head) => {
+    const { pathname } = new URL(req.url, 'http://localhost');
+    const wss = { '/ingest': ingest, '/stt': stt }[pathname];
+    if (!wss) return socket.destroy();
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+  });
+
+  stt.on('connection', (ws, req) => {
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    const provider = params.get('provider');
+    if (provider !== 'openai' && provider !== 'qwen') return ws.close(4400, 'unknown provider');
+    const serverKey = provider === 'openai' ? openaiApiKey : qwenApiKey;
+    const apiKey = serverKey || clientKey(req.headers['sec-websocket-protocol']);
+    if (!apiKey) {
+      ws.send(JSON.stringify({ type: 'error', error: { message: `No ${provider} API key` } }));
+      return ws.close(4401, 'missing key');
+    }
+    const url = provider === 'openai'
+      ? openaiUrl
+      : qwenUrl({ base: qwenBaseUrl, region: serverKey ? qwenRegion : params.get('region'), model: qwenModel });
+    log(`transcription relay (${provider}, ${serverKey ? 'server' : 'browser'} key)`);
+    relayTranscription(ws, { url, apiKey, log });
+  });
+
+  ingest.on('connection', (ws, req) => {
     const params = new URL(req.url, 'http://localhost').searchParams;
     const sampleRate = Number(params.get('sampleRate')) || 16000;
     const channels = Number(params.get('channels')) || 2;

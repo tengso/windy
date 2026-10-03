@@ -62,7 +62,8 @@ after(() => {
 
 test('advertises Deepgram when a key is configured', async () => {
   const config = await (await fetch(`http://${base}/api/config`)).json();
-  assert.deepEqual(config, { transcription: 'deepgram' });
+  assert.equal(config.transcription, 'deepgram');
+  assert.deepEqual(config.providers.deepgram, { serverKey: true });
 });
 
 test('relays audio to Deepgram and transcripts back to the browser', async () => {

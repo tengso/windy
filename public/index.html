@@ -73,6 +73,26 @@
         <button id="start" class="btn primary"><span class="rec-dot"></span>Start recording</button>
         <button id="stop" class="btn danger" hidden><span class="stop-square"></span>End recording</button>
       </div>
+      <div class="model-picker" id="model-picker">
+        <div class="model-row">
+          <label for="model">Transcript model</label>
+          <select id="model">
+            <option value="builtin">Built-in · Whisper on this device</option>
+            <option value="openai">OpenAI · gpt-live-transcribe</option>
+            <option value="qwen">Qwen · qwen3-asr-flash-realtime</option>
+            <option value="deepgram" hidden disabled>Deepgram · nova-3</option>
+          </select>
+        </div>
+        <div id="key-row" class="key-row" hidden>
+          <input type="password" id="model-key" autocomplete="off" spellcheck="false" aria-label="API key">
+          <select id="qwen-region" aria-label="Model Studio region" hidden>
+            <option value="intl">Singapore (international)</option>
+            <option value="cn">Beijing (China)</option>
+          </select>
+          <label class="remember"><input type="checkbox" id="remember-key"> Remember key in this browser</label>
+        </div>
+        <small id="model-note" class="model-note"></small>
+      </div>
       <p id="mode" class="mode"></p>
     </section>
 
