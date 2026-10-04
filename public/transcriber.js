@@ -4,15 +4,18 @@ const MAX_SEGMENT_S = 8;
 const MIN_VOICE_S = 0.3;
 const PRE_ROLL_BATCHES = 2;
 
-// Splits one channel into utterances using a simple energy-based voice detector.
-export function createSegmenter({ sampleRate, onSpeaking, onSegment }) {
+// Splits one channel into utterances using a simple energy-based voice detector. `onAudio` receives each batch of
+// an utterance as it arrives (for streaming engines); `onDiscard` fires when an utterance is too short to keep.
+export function createSegmenter({
+  sampleRate, onSpeaking, onSegment, onAudio = () => {}, onDiscard = () => {}, startAt = 0,
+}) {
   let batches = [];
   let preRoll = [];
   let speaking = false;
   let silence = 0;
   let voiced = 0;
   let start = 0;
-  let position = 0;
+  let position = Math.round(startAt * sampleRate);
 
   function emit() {
     const length = batches.reduce((n, b) => n + b.length, 0);
@@ -21,6 +24,8 @@ export function createSegmenter({ sampleRate, onSpeaking, onSegment }) {
       let offset = 0;
       for (const b of batches) { audio.set(b, offset); offset += b.length; }
       onSegment({ audio, start: start / sampleRate, end: (start + length) / sampleRate });
+    } else if (length) {
+      onDiscard();
     }
     batches = [];
     voiced = 0;
@@ -39,9 +44,12 @@ export function createSegmenter({ sampleRate, onSpeaking, onSegment }) {
         batches = [...preRoll];
         start = position - preRoll.reduce((n, b) => n + b.length, 0);
         onSpeaking(true, start / sampleRate);
+        let t = start;
+        for (const b of preRoll) { onAudio(b, t / sampleRate); t += b.length; }
       }
       if (speaking) {
         batches.push(samples);
+        onAudio(samples, position / sampleRate);
         if (isVoice) { voiced += seconds; silence = 0; } else silence += seconds;
         const length = batches.reduce((n, b) => n + b.length, 0) / sampleRate;
         if (silence >= END_SILENCE_S) {

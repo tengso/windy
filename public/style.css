@@ -210,6 +210,23 @@ h2 { font-size: 16px; }
 
 .mode { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
 
+.model-picker { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.model-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.model-row label { font-weight: 600; font-size: 14px; }
+.model-picker select, .model-picker input[type="password"] {
+  font: inherit; font-size: 14px;
+  padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; color: var(--text);
+}
+.model-picker select:focus, .model-picker input:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+.model-row select { min-width: 260px; }
+.key-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.key-row[hidden], .key-row select[hidden] { display: none; }
+.key-row input[type="password"] { flex: 1; min-width: 220px; }
+.remember { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.model-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
+
 .steps { margin: 14px 0 0; padding: 0; list-style: none; counter-reset: step; }
 .steps li {
   position: relative;

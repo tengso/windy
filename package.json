@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "lint": "node --check server.js && node --check lib/wav.js && node --check lib/deepgram.js && node --check public/main.js && node --check public/pcm-worklet.js && node --check public/transcriber.js && node --check public/whisper-worker.js"
+    "lint": "node --check server.js && node --check lib/wav.js && node --check lib/deepgram.js && node --check lib/stt-relay.js && node --check public/main.js && node --check public/pcm-worklet.js && node --check public/transcriber.js && node --check public/cloud-stt.js && node --check public/whisper-worker.js"
   },
   "engines": {
     "node": ">=20"
