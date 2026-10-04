@@ -6,14 +6,16 @@ const PRE_ROLL_BATCHES = 2;
 
 // Splits one channel into utterances using a simple energy-based voice detector. `onAudio` receives each batch of
 // an utterance as it arrives (for streaming engines); `onDiscard` fires when an utterance is too short to keep.
-export function createSegmenter({ sampleRate, onSpeaking, onSegment, onAudio = () => {}, onDiscard = () => {} }) {
+export function createSegmenter({
+  sampleRate, onSpeaking, onSegment, onAudio = () => {}, onDiscard = () => {}, startAt = 0,
+}) {
   let batches = [];
   let preRoll = [];
   let speaking = false;
   let silence = 0;
   let voiced = 0;
   let start = 0;
-  let position = 0;
+  let position = Math.round(startAt * sampleRate);
 
   function emit() {
     const length = batches.reduce((n, b) => n + b.length, 0);

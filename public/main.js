@@ -303,10 +303,11 @@ function ensureWhisper() {
   return whisper;
 }
 
-function whisperSegmenters(channels) {
+function whisperSegmenters(channels, startAt = 0) {
   const engine = ensureWhisper();
   return channels.map(channel => createSegmenter({
     sampleRate: SAMPLE_RATE,
+    startAt,
     onSpeaking: (speaking, start) => {
       transcript.speaking[channel] = speaking;
       if (speaking) transcript.lastStart[channel] = start;
@@ -365,7 +366,7 @@ function fallBackToWhisper(engine, message) {
   session.cloud.forEach(channel => channel.close());
   session.cloud = [];
   session.engine = 'whisper';
-  session.segmenters = whisperSegmenters(session.channels);
+  session.segmenters = whisperSegmenters(session.channels, session.seconds);
   transcript.engine = 'whisper';
   transcript.interim = [null, null];
   transcript.speaking = [false, false];
@@ -543,7 +544,7 @@ async function start() {
       segmenters: engine === 'whisper' ? whisperSegmenters(channels) : [],
       cloud: CLOUD.includes(engine) ? cloudChannels(engine, channels) : [],
     };
-    let seconds = 0;
+    live.seconds = 0;
     node.port.onmessage = ({ data }) => {
       if (live.segmenters.length || live.cloud.length) {
         const perChannel = deinterleave(new Int16Array(data.pcm), CHANNELS);
@@ -551,12 +552,12 @@ async function start() {
         live.cloud.forEach((stt, i) => stt.push(perChannel[live.channels[i]]));
       }
       sink.write(data.pcm);
-      seconds += data.pcm.byteLength / (SAMPLE_RATE * CHANNELS * 2);
+      live.seconds += data.pcm.byteLength / (SAMPLE_RATE * CHANNELS * 2);
       const micLevel = micStream ? data.peak[1] : 0;
       setSpeaker('tab', data.peak[0]);
       setSpeaker('mic', micLevel);
       pushHistory(data.peak[0], micLevel);
-      setTimer(seconds);
+      setTimer(live.seconds);
     };
 
     tabStream.getAudioTracks()[0].addEventListener('ended', () => stop());
